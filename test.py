@@ -8,6 +8,9 @@ import string
 from common import q, sqnorm
 from fft import add, sub, mul, div, neg, fft, ifft
 from ntt import mul_zq, div_zq
+from web3 import Web3
+import json
+import binascii
 from samplerz import samplerz, MAX_SIGMA
 from ffsampling import ffldl, ffldl_fft, ffnp, ffnp_fft
 from ffsampling import gram
@@ -217,82 +220,147 @@ def test_samplerz_KAT(unused, unused2):
     return True
 
 
-def test_signature(n, iterations=10):
+def test_signature(n, iterations=1):
     import random as rr
 
-    signatureWrite = open("signature.txt", "w")
-    messageWrite = open("message.txt", "w")
-    pubkeyWrite = open("pubkey.txt", "w")
-    inputWrite = open("input.txt", "w")
+    w3 = Web3(Web3.IPCProvider('/home/ucs/indra_workspace/GethProjects/geth.ipc'))
+    print("=== Geth connection ===")
+    print("[*] Geth connection:", w3.isConnected())
+
+    account = w3.eth.get_coinbase()
+
+    abi_dir = '/home/ucs/indra_workspace/SolidityProject/Falcon/build/contracts/'
+    contract_name = 'falcon_contract'
+    network_id = 15
+
+    with open(abi_dir + contract_name + '.json', "r") as abi_json:
+        
+        json_file = json.load(abi_json)
+        contract_abi = json_file['abi']
+        contract_addr = json_file['networks'][str(network_id)]['address']
+
+        contract = w3.eth.contract(address=contract_addr, abi=contract_abi)
+
+        caller = account
+        private_key = ""
+
+        geth_keystore_dir = "/home/ucs/indra_workspace/GethProjects/keystore/"
+        key_dir = "UTC--2021-11-16T07-34-24.617660514Z--c066c6221ad9f553d2e97a7b632ef56af1fdd9e5"
+
+        with open(geth_keystore_dir + key_dir, "r") as keyfile:
+            key_ct = keyfile.read()
+            private_key = w3.eth.account.decrypt(key_ct, 'ether')
+
+            private_key = binascii.b2a_hex(private_key)
+
+        nonce = w3.eth.getTransactionCount(caller)
+
+        #signatureWrite = open("signature.txt", "w")
+        #messageWrite = open("message.txt", "w")
+        #pubkeyWrite = open("pubkey.txt", "w")
+        #inputWrite = open("input.txt", "w")
+
+        input = []
 
 
-    mm = ''.join(rr.choices(string.ascii_lowercase, k = 32))
-    msg = mm.encode('utf-8')
+        mm = ''.join(rr.choices(string.ascii_lowercase, k = 32))
+        msg = mm.encode('utf-8')
 
-    """ for i in msgList:
-        b = bin(i)
-        for n in range(len(b)):
-            if n != 1 and n != 0:
-                inputWrite.write(str(b[n]))
-        inputWrite.write(" ") """
+        """ for i in msgList:
+            b = bin(i)
+            for n in range(len(b)):
+                if n != 1 and n != 0:
+                    inputWrite.write(str(b[n]))
+            inputWrite.write(" ") """
+        
+        """
+        Test Falcon.
+        """
+
     
-    """
-    Test Falcon.
-    """
+        '''f = sign_KAT[n][0]["f"]
+        g = sign_KAT[n][0]["g"]
+        F = sign_KAT[n][0]["F"]
+        G = sign_KAT[n][0]["G"]
+        sk = SecretKey(n, [f, g, F, G])
+        pk = PublicKey(sk)'''
 
     
-    '''f = sign_KAT[n][0]["f"]
-    g = sign_KAT[n][0]["g"]
-    F = sign_KAT[n][0]["F"]
-    G = sign_KAT[n][0]["G"]
-    sk = SecretKey(n, [f, g, F, G])
-    pk = PublicKey(sk)'''
+        #f = sign_KAT[n][13]["f"]
+        #g = sign_KAT[n][13]["g"]
+        #F = sign_KAT[n][13]["F"]
+        #G = sign_KAT[n][13]["G"]
 
-    
-    f = sign_KAT[n][0]["f"]
-    g = sign_KAT[n][0]["g"]
-    F = sign_KAT[n][0]["F"]
-    G = sign_KAT[n][0]["G"]
-    sk = SecretKey(n, [f, g, F, G])
-    pk = PublicKey(sk)
+        f = []
+        g = []
+        F = []
+        G = []
+        check = False
+        while check == False: 
+            [f,g,F,G] = ntru_gen(n)
 
-    pubkeyList = list(pk.h)
-    for l in pubkeyList:
-        fHalf = (l >> 8) & 0xff
-        sHalf = l & 0xff
-        inputWrite.write(str(fHalf))
-        inputWrite.write(" ")
-        inputWrite.write(str(sHalf))
-        inputWrite.write(" ")
+            if check_ntru(f, g, F, G) is False:
+                check = False
+                f = []
+                g = []
+                F = []
+                G = []
+            else:
+                check = True
 
-        pubkeyWrite.write(str(l))
-        pubkeyWrite.write(" ")
+        sk = SecretKey(n, [f, g, F, G])
+        pk = PublicKey(sk)
 
-    msgList = list(msg)
-    for chars in msgList:
-            messageWrite.write(str(chars))
-            messageWrite.write(" ")
+        pubkeyList = list(pk.h)
+        for l in pubkeyList:
+            fHalf = (l >> 8) & 0xff
+            sHalf = l & 0xff
+            input.append(fHalf)
+            input.append(sHalf)
 
-            inputWrite.write(str(chars))
-            inputWrite.write(" ")
+            #pubkeyWrite.write(str(l))
+            #pubkeyWrite.write(" ")
 
-    sig = sk.sign(msg)
-    sigList = list(sig)
+        msgList = list(msg)
+        for chars in msgList:
+                #messageWrite.write(str(chars))
+                #messageWrite.write(" ")
 
-    for numbers in sigList:
-        signatureWrite.write(str(numbers))
-        signatureWrite.write(" ")
+                input.append(chars)
 
-        inputWrite.write(str(numbers))
-        inputWrite.write(" ")
+        sig = sk.sign(msg)
+        sigList = list(sig)
+
+        for numbers in sigList:
+            #signatureWrite.write(str(numbers))
+            #signatureWrite.write(" ")
+
+            input.append(numbers)
+
+        print(input)
+
+        tx = contract.functions.falcon_verification(input).buildTransaction(
+            {
+                'from': account,
+                'nonce': nonce
+            }
+        )
+
+        tx_create = w3.eth.account.sign_transaction(tx, bytes.decode(private_key, 'utf-8'))
+        tx_hash = w3.eth.send_raw_transaction(tx_create.rawTransaction)
+        tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+        print("[*] Transaction hash:", tx_hash.hex())
+        print("[*] Block Number:", tx_receipt.blockNumber)
+        print("[*] Gas Used:", tx_receipt.gasUsed)
 
 
-    if pk.verify(msg, sig) is False:
-        return False
-           
-    """ Test falcon verify """
+        if pk.verify(msg, sig) is False:
+            return False
+            
+        """ Test falcon verify """
 
-    return True
+        return True
 
 
 def test_sign_KAT():
@@ -364,7 +432,7 @@ def test(n, iterations=10):
 
 # Run all the tests
 if (__name__ == "__main__"):
-    print("Test Sig KATs       : ", end="")
+    #print("Test Sig KATs       : ", end="")
     print("OK" if (test_sign_KAT() is True) else "Not OK")
 
     # wrapper_test(test_samplerz_simple, "SamplerZ", None, 100000)
